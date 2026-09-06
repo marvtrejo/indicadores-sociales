@@ -1,0 +1,25 @@
+project:
+  type: website
+  output-dir: docs
+
+website:
+  title: "Estadística e Indicadores Sociales"
+  description: "Portafolio de análisis de datos y políticas públicas"
+  navbar:
+    right:
+      - about.qmd
+      - icon: github
+      - href: https://github.com/
+
+format:
+  html:
+    theme: cosmo
+    css: styles.css
+    code-fold: true
+    code-tools: true
+    toc: true
+
+execute:
+  echo: true
+  warning: false
+  message: false 
