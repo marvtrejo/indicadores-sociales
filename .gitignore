@@ -50,3 +50,9 @@ rsconnect/
 
 /.quarto/
 **/*.quarto_ipynb
+
+
+# Bases de datos
+*.csv
+*.dta
+*.dbf
