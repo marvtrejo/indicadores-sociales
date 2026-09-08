@@ -1,17 +1,14 @@
 {
   "index.qmd": {
-    "index.html": "f37f04e1"
+    "index.html": "241fa674"
   },
   "about.qmd": {
-    "about.html": "95b5ad66"
+    "about.html": "64023658"
   },
-  "posts/post-with-code/index.qmd": {
-    "index.html": "ddb59dd5"
-  },
-  "posts/welcome/index.qmd": {
-    "index.html": "11b10f78"
+  "index.knit.md": {
+    "index.knit.html": "82e3fadc"
   },
   "posts/01-estadistica-descriptiva/index.qmd": {
-    "index.html": "45a4ade5"
+    "index.html": "7beef589"
   }
 }
