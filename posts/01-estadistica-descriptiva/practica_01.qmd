@@ -1,0 +1,380 @@
+---
+title: "Práctica 01: Estadística descriptiva"
+description: "Análisis exploratorio de la ENIGH"
+author: "Marvin Trejo"
+date: "2026-09-07"
+categories: [ENIGH, estadística descriptiva, visualización]
+---
+
+En este primer ejercicio de la materia "Estadística e Indicadores Sociales", utilizaremos la base de datos `concentradohogar` de la ENIGH 2024 con el objetivo de analizar cómo interactúan el nivel de escolaridad de la jefatura del hogar, el estrato socioeconómico, el ingreso per cápita y la recepción de beneficios gubernamentales.
+
+# Entorno y datos
+
+Primero, cargamos las librerías necesarias y preparamos nuestra base de datos. En este caso, crearemos tres variables:
+
+* `estrato_lab`: asigna etiquetas (bajo, medio-bajo, medio-alto y alto) con base en la variable `est_socio`.
+* `ictpc`: corresponde al ingreso corriente total per cápita, es decir, el ingreso corriente del hogar dividido entre el número de integrantes.
+* `educa_agregada`: clasifica a los hogares en tres categorías en función del nivel de educación de la jefatura del hogar (`educa_jefe`). 
+
+Por último, declaramos el diseño muestral para trabajar con datos que sean representativos de toda la población.
+
+```{r datos, message=FALSE, warning=FALSE}
+#| code-fold: false
+
+library(tidyverse)
+library(survey)
+
+# Base de datos
+concentrado  <- read_csv("concentradohogar.csv")
+
+# Configuración visual para gráficas
+source("../../visuales.R")
+
+# Variables analíticas:
+concentrado <- concentrado %>%
+  mutate(
+    
+    # Estrato socioeconómico
+    est_socio = as.numeric(est_socio),
+    estrato_lab = case_when(
+      est_socio == 1 ~ "Bajo",
+      est_socio == 2 ~ "Medio-bajo",
+      est_socio == 3 ~ "Medio-alto",
+      est_socio == 4 ~ "Alto"
+    ),
+    
+    # Ingreso corriente per cápita
+    ictpc = ing_cor / tot_integ,
+    
+    # Escolaridad del jefe(a)
+    educa_agrupada = case_when(
+      educa_jefe %in% c("01", "02", "03", "04") ~ "Sin instr./Primaria",
+      educa_jefe %in% c("05", "06", "07", "08") ~ "Secundaria/Preparatoria",
+      educa_jefe %in% c("09", "10", "11")       ~ "Profesional/Posgrado"
+    ),
+    
+    #Factores para las variables creadas
+    educa_agrupada = factor(educa_agrupada,
+                            levels = c("Sin instr./Primaria", 
+                                       "Secundaria/Preparatoria", 
+                                       "Profesional/Posgrado")),
+    
+    estrato_lab = factor(estrato_lab, 
+                         levels = c("Bajo", 
+                                    "Medio-bajo", 
+                                    "Medio-alto", 
+                                    "Alto"))
+  )
+
+# Diseño muestral
+concen_design <- svydesign(
+  ids = ~upm, 
+  strata = ~est_dis, 
+  weights = ~factor,
+  data = concentrado, 
+  nest = TRUE
+)
+```
+
+# Escolaridad y estrato socioeconómico
+¿La escolaridad del jefe(a) del hogar se relaciona con el estrato socioeconómico del hogar? (tabla cruzada `educa_jefe` x `estrato_lab`, o un boxplot de `ictpc` según nivel de escolaridad).
+
+## Número de hogares
+
+::: {.panel-tabset}
+
+## Tabla
+
+```{r tabla-num-hogares, message=FALSE, warning=FALSE}
+library(flextable)
+library(tidyr)
+
+concen_design <- update(concen_design, contador_hogar = 1)
+
+totales_cruzados <- svyby(
+  formula = ~contador_hogar, 
+  by = ~educa_agrupada + estrato_lab, 
+  design = concen_design, 
+  FUN = svytotal,
+  na.rm = TRUE
+)
+
+cv_totales <- cv(totales_cruzados)
+
+tabla_01 <- as.data.frame(totales_cruzados) %>%
+  mutate(
+    cv_pct = as.numeric(cv_totales) * 100,
+    
+    niv_precision = case_when(
+      cv_pct < 15 ~ "🟢",
+      cv_pct >= 15 & cv_pct < 30 ~ "🟡",
+      cv_pct >= 30 ~ "🔴"
+    ),
+    
+    valor_tabla = paste0(
+      format(round(contador_hogar), big.mark = ","), " ", niv_precision
+      )
+    
+    # estrato_lab = factor(estrato_lab,
+    #                      levels = c("Bajo",
+    #                                 "Medio-bajo",
+    #                                 "Medio-alto",
+    #                                 "Alto")
+    #                      ),
+    # 
+    # educa_agrupada = factor(educa_agrupada, 
+    #                         levels = c("Sin instr./Primaria",
+    #                                    "Secundaria/Preparatoria",
+    #                                    "Profesional/Posgrado")
+    #                         )
+  ) %>% 
+  
+  select(educa_agrupada, estrato_lab, valor_tabla) %>%
+  
+  pivot_wider(
+    names_from = estrato_lab, 
+    values_from = valor_tabla,
+    names_sort = TRUE
+  ) %>% 
+  arrange(desc(educa_agrupada))
+
+flextable(tabla_01) %>%
+  set_header_labels(educa_agrupada = "Escolaridad de la jefatura del hogar") %>%
+  set_caption("Total de hogares por estrato socioeconómico y escolaridad") %>%
+  add_footer_lines("Nivel de precisión (CV): 🟢 Alto (0-15) 🟡 Moderado [15-30) 🔴 Bajo (mayor o igual a 30)") %>%
+  autofit() %>%
+  theme_vanilla()
+```
+
+## Gráfica
+
+```{r grafico-num-hogares, message=FALSE, warning=FALSE}
+library(ggplot2)
+library(scales)
+
+df_grafica <- as.data.frame(totales_cruzados) 
+# %>% 
+#   mutate(
+#     educa_agrupada = factor(educa_agrupada, 
+#                             levels = c("Sin instr./Primaria", 
+#                                        "Secundaria/Preparatoria", 
+#                                        "Profesional/Posgrado")),
+#     
+#     estrato_lab = factor(estrato_lab, 
+#                          levels = c("Bajo", 
+#                                     "Medio-bajo", 
+#                                     "Medio-alto", 
+#                                     "Alto"))
+#   )
+
+ggplot(df_grafica, 
+       aes(x = educa_agrupada, 
+           y = contador_hogar, 
+           color = estrato_lab, 
+           group = estrato_lab)
+       ) +
+  
+  geom_line(linewidth = 1) +
+  
+  geom_point(shape = 21, fill = "#FFFFFF", size = 3.5, stroke = 1.5) +
+  
+  scale_color_manual(values = colores_4) +
+  scale_y_continuous(labels = comma) +
+  
+  labs(
+    title = "Hogares por estrato socioeconómico, según nivel de escolaridad",
+    subtitle = "2024\n(número de hogares)",
+    x = "Escolaridad de la jefatura del hogar",
+    y = NULL, 
+    color = "Estrato socioeconómico", 
+    caption = "Fuente: INEGI. Encuesta Nacional de Ingresos y Gastos de los Hogares (ENIGH), 2024."
+  )
+```
+
+:::
+
+## Distribución por escolaridad
+
+**¿El "premio" de la escolaridad sobre el ingreso per cápita es
+distinto según el estrato socioeconómico?** (interacción entre
+`educa_jefe` y `estrato_lab` sobre `ictpc`).
+
+```{r boxplot-escolaridad, message=FALSE, warning=FALSE}
+
+library(ggplot2)
+library(scales)
+
+df_boxplot <- as.data.frame(concentrado) 
+# %>% 
+#   mutate(
+#     educa_agrupada = factor(educa_agrupada, 
+#                             levels = c("Sin instr./Primaria", 
+#                                        "Secundaria/Preparatoria", 
+#                                        "Profesional/Posgrado")),
+#     
+#     estrato_lab = factor(estrato_lab, 
+#                          levels = c("Bajo", 
+#                                     "Medio-bajo", 
+#                                     "Medio-alto", 
+#                                     "Alto"))
+#   )
+
+
+ggplot(df_boxplot, 
+       aes(x = educa_agrupada, 
+           y = ictpc, 
+           fill = educa_agrupada)) +
+  
+  geom_boxplot(color = "#003057", 
+               outlier.color = "#8696A2", 
+               outlier.shape = 1, 
+               alpha = 0.9) +
+  scale_fill_manual(values = colores_4) +
+  scale_y_continuous(labels = comma) +
+  coord_cartesian(ylim=c(0,150000)) +
+  labs(
+    title = "Distribución del ingreso corriente per cápita, según escolaridad de la jefatura",
+    subtitle = "2024\n(pesos trimestrales)",
+    x = "Escolaridad de la jefatura del hogar",
+    caption = "Nota: Para facilitar la visualización, solamente se muestra el ingreso corriente per cápita hasta $150,000 \nFuente: INEGI. Encuesta Nacional de Ingresos y Gastos de los Hogares (ENIGH), 2024."
+  ) +
+  theme(legend.position = "none")
+```
+
+```{r boxplot-estrato, message=FALSE, warning=FALSE}
+ggplot(df_boxplot, 
+       aes(x = estrato_lab, 
+           y = ictpc, 
+           fill = estrato_lab)) +
+  geom_boxplot(color = "#003057", 
+               outlier.color = "#8696A2", 
+               outlier.shape = 1, 
+               alpha = 0.9) +
+  scale_fill_manual(values = colores_4) +
+  scale_y_continuous(labels = comma) +
+  coord_cartesian(ylim=c(0,150000)) +
+  labs(
+    title = "Distribución del ingreso corriente per cápita, según estrato socioeconómico",
+    subtitle = "2024\n(pesos trimestrales)",
+    x = "Estrato socioeconómico",
+    caption = "Nota: Nota: Para facilitar la visualización, solamente se muestra el ingreso corriente per cápita hasta $150,000 \nFuente: INEGI. Encuesta Nacional de Ingresos y Gastos de los Hogares (ENIGH), 2024."
+  ) +
+  theme(legend.position = "none")
+```
+
+
+
+# Beneficios gubernamentales
+## Estrato socioeconómico
+**¿Los beneficios gubernamentales están más concentrados en los estratos bajos?** Es decir, ¿`bene_gob` funciona como un mecanismo redistributivo? (comparar el promedio de `bene_gob` y qué proporción representa del `ing_cor` en cada estrato).
+
+::: {.panel-tabset}
+
+### Tabla de beneficios
+
+```{r tabla-beneficios, message=FALSE, warning=FALSE}
+library(dplyr)
+library(tidyr)
+library(flextable)
+
+# 1. Calculamos ambos promedios poblacionales en una sola instrucción
+medias_estrato <- svyby(
+  formula = ~ing_cor + bene_gob, 
+  by = ~estrato_lab, 
+  design = concen_design, 
+  FUN = svymean,
+  na.rm = TRUE
+)
+
+# 2. Construimos la tabla con el cálculo de la proporción
+tabla_beneficios <- as.data.frame(medias_estrato) %>%
+  select(estrato_lab, ing_cor, bene_gob) %>%
+  mutate(
+    proporcion_bene = (bene_gob / ing_cor) * 100
+  )
+
+# 3. Formateamos la tabla para el sitio web
+flextable(tabla_beneficios) %>%
+  set_header_labels(
+    estrato_lab = "Estrato socioeconómico",
+    ing_cor = "Ingreso corriente promedio",
+    bene_gob = "Beneficios gubernamentales promedio",
+    proporcion_bene = "Proporción de beneficios (%)"
+  ) %>%
+  colformat_double(j = c("ing_cor", "bene_gob"), digits = 0, big.mark = ",") %>%
+  colformat_double(j = "proporcion_bene", digits = 1) %>%
+  set_caption("Ingreso corriente y beneficios gubernamentales promedio, por estrato") %>%
+  autofit() %>%
+  theme_vanilla()
+
+```
+
+### Gráfica
+
+```{r grafica-beneficios, message=FALSE, warning=FALSE}
+library(ggplot2)
+library(scales)
+
+df_grafica_bene <- tabla_beneficios %>%
+  select(estrato_lab, 
+         `Ingreso corriente` = ing_cor, 
+         `Beneficios gubernamentales` = bene_gob,
+         proporcion_bene) %>%
+  
+  pivot_longer(
+    cols = c(`Ingreso corriente`, `Beneficios gubernamentales`),
+    names_to = "tipo_ingreso",
+    values_to = "monto"
+  ) %>%
+  
+  mutate(
+    tipo_ingreso = factor(tipo_ingreso, 
+                          levels = c("Ingreso corriente", 
+                                     "Beneficios gubernamentales")),
+    
+    etiqueta = if_else(
+      tipo_ingreso == "Beneficios gubernamentales", 
+      paste0(comma(round(monto)), "\n(", round(proporcion_bene, 1), "%)"), 
+      comma(round(monto))
+      )
+  )
+
+ggplot(df_grafica_bene, 
+       aes(x = estrato_lab, 
+           y = monto, 
+           fill = tipo_ingreso)) +
+  
+  geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+  
+  geom_text(aes(label = etiqueta), 
+            position = position_dodge(width = 0.8), 
+            vjust = -0.5,    
+            size = 3,               
+            fontface = "bold",     
+            color = "#4D565E") + 
+  
+  scale_fill_manual(values = colores_4) +
+  scale_y_continuous(labels = comma,
+                     expand = expansion(mult = c(0, 0.15))) +
+  
+  labs(
+    title = "Ingreso corriente y beneficios gubernamentales promedio",
+    subtitle = "2024\n(pesos trimestrales)",
+    x = "Estrato socioeconómico",
+    fill = NULL, 
+    caption = "Fuente: INEGI. Encuesta Nacional de Ingresos y Gastos de los Hogares (ENIGH), 2024."
+  )
+
+```
+
+:::
+
+**¿Existe una relación entre escolaridad del jefe(a) y la
+probabilidad de recibir beneficios gubernamentales?** (por ejemplo,
+`mean(bene_gob > 0)` por nivel de `educa_jefe`).
+
+# Ingresos
+**¿El ingreso per cápita reduce o amplía las diferencias entre
+hogares en comparación con el ingreso corriente total?** (comparar la
+dispersión relativa —coeficiente de variación muestral, no el de
+diseño— de `ing_cor` frente a `ictpc`).
